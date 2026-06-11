@@ -11,48 +11,142 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Internet Surfer")
         self.setGeometry(100, 100, 1200, 800)
+
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #35363a;
+            }
+            QTabBar {
+                background-color: #202124;
+                qproperty-drawBase: 0;
+                border: none;
+            }
+            QTabBar::tab {
+                background-color: #202124;
+                color: #9aa0a6;
+                padding: 8px 20px;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                margin-top: 4px;
+                margin-right: 2px;
+                min-width: 120px;
+                max-width: 180px;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: 12px;
+            }
+            QTabBar::tab:selected {
+                background-color: #35363a;
+                color: #ffffff;
+            }
+            QTabBar::tab:hover:not(:selected) {
+                background-color: #292a2d;
+                color: #e8eaed;
+            }
+            QTabBar::close-button {
+                subcontrol-position: right;
+                border-radius: 2px;
+            }
+            QTabBar::close-button:hover {
+                background-color: #e81123;
+            }
+            QLineEdit {
+                background-color: #202124;
+                color: #ffffff;
+                border: none;
+                border-radius: 14px;
+                padding: 5px 15px;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border: 2px solid #8ab4f8;
+                padding: 3px 13px;
+            }
+            QPushButton {
+                background-color: transparent;
+                color: #e8eaed;
+                border: none;
+                border-radius: 14px;
+                min-width: 28px;
+                min-height: 28px;
+                max-width: 28px;
+                max-height: 28px;
+                font-size: 16px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.2);
+            }
+            QPushButton#new_tab_btn {
+                color: #9aa0a6;
+                font-size: 14px;
+                margin-top: 4px;
+                margin-left: 4px;
+            }
+            QPushButton#new_tab_btn:hover {
+                background-color: rgba(255, 255, 255, 0.08);
+                color: #ffffff;
+            }
+            QStatusBar {
+                background-color: #202124;
+                color: #9aa0a6;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: 11px;
+            }
+        """)
+
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
+
         self.tab_bar = QTabBar()
         self.tab_bar.setTabsClosable(True)
         self.tab_bar.setMovable(True)
         self.tab_bar.tabCloseRequested.connect(self.close_current_tab)
         self.tab_bar.currentChanged.connect(self.tab_changed)
         main_layout.addWidget(self.tab_bar)
+
+        self.new_tab_btn = QPushButton("＋")
+        self.new_tab_btn.setObjectName("new_tab_btn")
+        self.new_tab_btn.clicked.connect(lambda: self.add_new_tab())
+        self.tab_bar.setCornerWidget(self.new_tab_btn, Qt.Corner.TopRightCorner)
+
         nav_bar_widget = QWidget()
-        nav_bar_widget.setStyleSheet("background-color: #2b2b2b; color: white;")
+        nav_bar_widget.setStyleSheet("background-color: #35363a;")
         nav_layout = QHBoxLayout(nav_bar_widget)
-        nav_layout.setContentsMargins(5, 5, 5, 5)
-        self.back_btn = QPushButton("◀")
-        self.back_btn.setFlat(True)
+        nav_layout.setContentsMargins(8, 4, 8, 6)
+        nav_layout.setSpacing(8)
+
+        self.back_btn = QPushButton("←")
         self.back_btn.clicked.connect(lambda: self.get_current_browser().back())
         nav_layout.addWidget(self.back_btn)
-        self.forward_btn = QPushButton("▶")
-        self.forward_btn.setFlat(True)
+
+        self.forward_btn = QPushButton("→")
         self.forward_btn.clicked.connect(lambda: self.get_current_browser().forward())
         nav_layout.addWidget(self.forward_btn)
-        self.reload_btn = QPushButton("🔄")
-        self.reload_btn.setFlat(True)
+
+        self.reload_btn = QPushButton("↻")
         self.reload_btn.clicked.connect(lambda: self.get_current_browser().reload())
         nav_layout.addWidget(self.reload_btn)
-        self.new_tab_btn = QPushButton("➕")
-        self.new_tab_btn.setFlat(True)
-        self.new_tab_btn.clicked.connect(lambda: self.add_new_tab())
-        nav_layout.addWidget(self.new_tab_btn)
+
         self.url_bar = QLineEdit()
-        self.url_bar.setStyleSheet("background-color: #1e1e1e; color: white; padding: 4px; border-radius: 4px;")
         self.url_bar.returnPressed.connect(self.navigate_to_url)
         nav_layout.addWidget(self.url_bar)
         main_layout.addWidget(nav_bar_widget)
+
         self.container = QStackedWidget()
         main_layout.addWidget(self.container)
+
         self.status = QStatusBar()
         self.setStatusBar(self.status)
+
         self.add_new_tab(QUrl("https://gentoo.org/"), "Gentoo Linux")
-    def add_new_tab(self, qurl=None, label="Nova Aba"):
+
+    def add_new_tab(self, qurl=None, label="Nova guia"):
         if qurl is None:
             qurl = QUrl("https://gentoo.org/")
         browser = QWebEngineView()
@@ -66,8 +160,10 @@ class MainWindow(QMainWindow):
         browser.loadProgress.connect(self.update_progress)
         browser.loadFinished.connect(self.load_finished)
         browser.page().profile().downloadRequested.connect(self.handle_download)
+
     def get_current_browser(self):
         return self.container.currentWidget()
+
     def close_current_tab(self, index):
         if self.tab_bar.count() < 2:
             return
@@ -77,6 +173,7 @@ class MainWindow(QMainWindow):
             self.container.removeWidget(browser_widget)
             browser_widget.deleteLater()
         self.tab_bar.removeTab(index)
+
     def tab_changed(self, index):
         if index >= 0:
             browser_index = self.tab_bar.tabData(index)
@@ -85,6 +182,7 @@ class MainWindow(QMainWindow):
                 browser = self.container.widget(browser_index)
                 if browser:
                     self.url_bar.setText(browser.url().toString())
+
     def navigate_to_url(self):
         text = self.url_bar.text()
         if not text.startswith("http://") and not text.startswith("https://"):
@@ -92,20 +190,25 @@ class MainWindow(QMainWindow):
         else:
             url = QUrl(text)
         self.get_current_browser().setUrl(url)
+
     def update_url_bar(self, url, browser):
         if browser == self.get_current_browser():
             self.url_bar.setText(url.toString())
+
     def update_title(self, title, browser):
         for index in range(self.tab_bar.count()):
             if self.tab_bar.tabData(index) == self.container.indexOf(browser):
                 short_title = title[:15] + "..." if len(title) > 15 else title
                 self.tab_bar.setTabText(index, short_title)
                 break
+
     def update_progress(self, progress):
         if progress < 100:
             self.status.showMessage(f"Carregando... {progress}%")
+
     def load_finished(self):
         self.status.showMessage("Pronto", 3000)
+
     def handle_download(self, download_item: QWebEngineDownloadRequest):
         default_path = os.path.expanduser(f"~/Downloads/{download_item.suggestedFileName()}")
         path, _ = QFileDialog.getSaveFileName(self, "Salvar Arquivo", default_path)
@@ -117,6 +220,7 @@ class MainWindow(QMainWindow):
             download_item.stateChanged.connect(lambda state: self.download_status_changed(state, download_item))
         else:
             download_item.interrupt()
+
     def download_status_changed(self, state, download_item):
         if state == QWebEngineDownloadRequest.DownloadState.DownloadCompleted:
             QMessageBox.information(self, "Download Concluído", f"O arquivo '{download_item.suggestedFileName()}' foi baixado com sucesso!")
