@@ -92,7 +92,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.container)
         self.status = QStatusBar()
         self.setStatusBar(self.status)
-        self.add_new_tab(QUrl("https://gentoo.org/"), "Gentoo Linux")
+        self.add_new_tab(QUrl("https://www.gentoo.org/"), "Gentoo Linux")
     def apply_embedded_stylesheet(self):
         qss = """
         QMainWindow { background-color: #ffffff; }
@@ -244,7 +244,7 @@ class MainWindow(QMainWindow):
         self.adjust_tab_widths()
     def add_new_tab(self, qurl=None, label="Nova guia"):
         if qurl is None:
-            qurl = QUrl("https://gentoo.org/")
+            qurl = QUrl("https://www.gentoo.org/")
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setStyleSheet("QSplitter::handle { background-color: #dee1e6; width: 4px; }")
         left_browser = QWebEngineView()
