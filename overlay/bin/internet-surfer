@@ -1,0 +1,187 @@
+import sys
+import os
+from PyQt6.QtCore import QUrl, Qt
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QLineEdit, 
+                             QStatusBar, QFileDialog, QMessageBox, 
+                             QWidget, QVBoxLayout, QHBoxLayout, 
+                             QPushButton, QTabBar, QStackedWidget)
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        self.setWindowTitle("Gentoo PyBrowser Pro")
+        self.setGeometry(100, 100, 1200, 800)
+
+        # Widget e Layout Central
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # 1. BARRA DE ABAS (No topo absoluto)
+        self.tab_bar = QTabBar()
+        self.tab_bar.setTabsClosable(True)
+        self.tab_bar.setMovable(True)
+        self.tab_bar.tabCloseRequested.connect(self.close_current_tab)
+        self.tab_bar.currentChanged.connect(self.tab_changed)
+        main_layout.addWidget(self.tab_bar)
+
+        # 2. BARRA DE NAVEGAÇÃO/PESQUISA (Logo abaixo das abas)
+        nav_bar_widget = QWidget()
+        nav_bar_widget.setStyleSheet("background-color: #2b2b2b; color: white;")
+        nav_layout = QHBoxLayout(nav_bar_widget)
+        nav_layout.setContentsMargins(5, 5, 5, 5)
+        
+        # Botões
+        self.back_btn = QPushButton("◀")
+        self.back_btn.setFlat(True)
+        self.back_btn.clicked.connect(lambda: self.get_current_browser().back())
+        nav_layout.addWidget(self.back_btn)
+
+        self.forward_btn = QPushButton("▶")
+        self.forward_btn.setFlat(True)
+        self.forward_btn.clicked.connect(lambda: self.get_current_browser().forward())
+        nav_layout.addWidget(self.forward_btn)
+
+        self.reload_btn = QPushButton("🔄")
+        self.reload_btn.setFlat(True)
+        self.reload_btn.clicked.connect(lambda: self.get_current_browser().reload())
+        nav_layout.addWidget(self.reload_btn)
+
+        self.new_tab_btn = QPushButton("➕")
+        self.new_tab_btn.setFlat(True)
+        self.new_tab_btn.clicked.connect(lambda: self.add_new_tab())
+        nav_layout.addWidget(self.new_tab_btn)
+
+        # Barra de Endereço (Pesquisa)
+        self.url_bar = QLineEdit()
+        self.url_bar.setStyleSheet("background-color: #1e1e1e; color: white; padding: 4px; border-radius: 4px;")
+        self.url_bar.returnPressed.connect(self.navigate_to_url)
+        nav_layout.addWidget(self.url_bar)
+
+        main_layout.addWidget(nav_bar_widget)
+
+        # 3. CONTAINER DOS SITES (Abaixo da busca)
+        self.container = QStackedWidget()
+        main_layout.addWidget(self.container)
+
+        # Barra de Status
+        self.status = QStatusBar()
+        self.setStatusBar(self.status)
+
+        # Inicializa a primeira aba
+        self.add_new_tab(QUrl("https://gentoo.org/"), "Gentoo Linux")
+
+    def add_new_tab(self, qurl=None, label="Nova Aba"):
+        if qurl is None:
+            qurl = QUrl("https://gentoo.org/")
+
+        browser = QWebEngineView()
+        browser.setUrl(qurl)
+        
+        # Adiciona o site ao container de telas e a aba na barra
+        browser_index = self.container.addWidget(browser)
+        tab_index = self.tab_bar.addTab(label)
+        
+        # Correção PyQt6: setTabData em vez de setTabUserData
+        self.tab_bar.setTabData(tab_index, browser_index)
+        self.tab_bar.setCurrentIndex(tab_index)
+
+        # Sinais de atualização do site
+        browser.urlChanged.connect(lambda qurl, b=browser: self.update_url_bar(qurl, b))
+        browser.titleChanged.connect(lambda title, b=browser: self.update_title(title, b))
+        browser.loadProgress.connect(self.update_progress)
+        browser.loadFinished.connect(self.load_finished)
+        
+        browser.page().profile().downloadRequested.connect(self.handle_download)
+
+    def get_current_browser(self):
+        return self.container.currentWidget()
+
+    def close_current_tab(self, index):
+        if self.tab_bar.count() < 2:
+            return
+        
+        # Correção PyQt6: tabData em vez de tabUserData
+        browser_index = self.tab_bar.tabData(index)
+        browser_widget = self.container.widget(browser_index)
+        
+        if browser_widget:
+            self.container.removeWidget(browser_widget)
+            browser_widget.deleteLater()
+        
+        self.tab_bar.removeTab(index)
+
+    def tab_changed(self, index):
+        if index >= 0:
+            # Correção PyQt6: tabData em vez de tabUserData
+            browser_index = self.tab_bar.tabData(index)
+            if browser_index is not None:
+                self.container.setCurrentIndex(browser_index)
+                
+                browser = self.container.widget(browser_index)
+                if browser:
+                    self.url_bar.setText(browser.url().toString())
+
+    def navigate_to_url(self):
+        text = self.url_bar.text()
+        if not text.startswith("http://") and not text.startswith("https://"):
+            url = QUrl("https://" + text)
+        else:
+            url = QUrl(text)
+        self.get_current_browser().setUrl(url)
+
+    def update_url_bar(self, url, browser):
+        if browser == self.get_current_browser():
+            self.url_bar.setText(url.toString())
+
+    def update_title(self, title, browser):
+        for index in range(self.tab_bar.count()):
+            if self.tab_bar.tabData(index) == self.container.indexOf(browser):
+                short_title = title[:15] + "..." if len(title) > 15 else title
+                self.tab_bar.setTabText(index, short_title)
+                break
+
+    def update_progress(self, progress):
+        if progress < 100:
+            self.status.showMessage(f"Carregando... {progress}%")
+
+    def load_finished(self):
+        self.status.showMessage("Pronto", 3000)
+
+    def handle_download(self, download_item: QWebEngineDownloadRequest):
+        default_path = os.path.expanduser(f"~/Downloads/{download_item.suggestedFileName()}")
+        path, _ = QFileDialog.getSaveFileName(self, "Salvar Arquivo", default_path)
+        
+        if path:
+            download_item.setDownloadDirectory(os.path.dirname(path))
+            download_item.setDownloadFileName(os.path.basename(path))
+            download_item.accept()
+            self.status.showMessage(f"Baixando: {download_item.suggestedFileName()}", 5000)
+            download_item.stateChanged.connect(
+                lambda state: self.download_status_changed(state, download_item)
+            )
+        else:
+            download_item.interrupt()
+
+    def download_status_changed(self, state, download_item):
+        if state == QWebEngineDownloadRequest.DownloadState.DownloadCompleted:
+            QMessageBox.information(self, "Download Concluído", 
+                                    f"O arquivo '{download_item.suggestedFileName()}' foi baixado com sucesso!")
+        elif state == QWebEngineDownloadRequest.DownloadState.DownloadInterrupted:
+            QMessageBox.warning(self, "Download Interrompido", 
+                                 f"O download de '{download_item.suggestedFileName()}' falhou ou foi cancelado.")
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setApplicationName("Gentoo PyBrowser Pro")
+    
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
