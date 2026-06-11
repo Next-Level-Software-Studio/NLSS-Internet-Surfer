@@ -1,26 +1,15 @@
 import sys, os
-from PyQt6.QtCore import QUrl, Qt, QObject, QEvent
+from PyQt6.QtCore import QUrl, Qt
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QLineEdit, QStatusBar, 
                              QFileDialog, QMessageBox, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QTabBar, QStackedWidget)
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest
 
-class GlobalKeyFilter(QObject):
-    def __init__(self, window):
-        super().__init__()
-        self.window = window
-    def eventFilter(self, obj, event):
-        if event.type() in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress):
-            if event.key() in (Qt.Key.Key_F4, Qt.Key.Key_W) and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
-                self.window.close_active_tab_via_shortcut()
-                return True
-        return super().eventFilter(obj, event)
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Gentoo PyBrowser Pro")
+        self.setWindowTitle("Internet Surfer")
         self.setGeometry(100, 100, 1200, 800)
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -63,8 +52,6 @@ class MainWindow(QMainWindow):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
         self.add_new_tab(QUrl("https://gentoo.org/"), "Gentoo Linux")
-        self.key_filter = GlobalKeyFilter(self)
-        QApplication.instance().installEventFilter(self.key_filter)
     def add_new_tab(self, qurl=None, label="Nova Aba"):
         if qurl is None:
             qurl = QUrl("https://gentoo.org/")
@@ -81,10 +68,6 @@ class MainWindow(QMainWindow):
         browser.page().profile().downloadRequested.connect(self.handle_download)
     def get_current_browser(self):
         return self.container.currentWidget()
-    def close_active_tab_via_shortcut(self):
-        current_index = self.tab_bar.currentIndex()
-        if current_index >= 0:
-            self.close_current_tab(current_index)
     def close_current_tab(self, index):
         if self.tab_bar.count() < 2:
             return
@@ -142,7 +125,7 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    app.setApplicationName("Gentoo PyBrowser Pro")
+    app.setApplicationName("Internet Surfer")
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
