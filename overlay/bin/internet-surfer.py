@@ -47,42 +47,35 @@ class MainWindow(QMainWindow):
         self.apply_embedded_stylesheet()
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_h_layout = QHBoxLayout(central_widget)
-        main_h_layout.setContentsMargins(0, 0, 0, 0)
-        main_h_layout.setSpacing(0)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
         tab_container = QWidget()
         tab_container.setObjectName("tab_container")
-        tab_container.setFixedWidth(180)
-        tab_layout = QVBoxLayout(tab_container)
+        tab_layout = QHBoxLayout(tab_container)
         tab_layout.setContentsMargins(0, 0, 0, 0)
         tab_layout.setSpacing(0)
         self.tab_bar = QTabBar()
-        self.tab_bar.setShape(QTabBar.Shape.RoundedWest)
         self.tab_bar.setTabsClosable(True)
         self.tab_bar.setMovable(True)
-        self.tab_bar.setExpanding(True)
+        self.tab_bar.setExpanding(False)
         self.tab_bar.setElideMode(Qt.TextElideMode.ElideRight)
         self.tab_bar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tab_bar.customContextMenuRequested.connect(self.show_tab_context_menu)
         self.tab_bar.tabCloseRequested.connect(self.close_current_tab)
         self.tab_bar.currentChanged.connect(self.tab_changed)
         tab_layout.addWidget(self.tab_bar)
-        self.new_tab_btn = QPushButton("＋ Nova Aba")
+        self.new_tab_btn = QPushButton("＋")
         self.new_tab_btn.setObjectName("new_tab_btn")
-        self.new_tab_btn.setMinimumWidth(160)
         self.new_tab_btn.clicked.connect(lambda: self.add_new_tab())
-        tab_layout.addWidget(self.new_tab_btn, 0, Qt.AlignmentFlag.AlignCenter)
+        tab_layout.addWidget(self.new_tab_btn)
         tab_layout.addStretch(1)
-        main_h_layout.addWidget(tab_container)
-        right_container = QWidget()
-        right_layout = QVBoxLayout(right_container)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(0)
+        main_layout.addWidget(tab_container)
         nav_bar_widget = QWidget()
-        nav_bar_widget.setStyleSheet("background-color: #ffffff; border-bottom: 1px solid #dee1e6;")
+        nav_bar_widget.setObjectName("nav_bar_widget")
         nav_layout = QHBoxLayout(nav_bar_widget)
-        nav_layout.setContentsMargins(8, 4, 8, 6)
-        nav_layout.setSpacing(8)
+        nav_layout.setContentsMargins(8, 4, 8, 4)
+        nav_layout.setSpacing(6)
         self.back_btn = QPushButton("←")
         self.back_btn.clicked.connect(lambda: self.get_current_browser().back() if self.get_current_browser() else None)
         nav_layout.addWidget(self.back_btn)
@@ -92,14 +85,21 @@ class MainWindow(QMainWindow):
         self.reload_btn = QPushButton("↻")
         self.reload_btn.clicked.connect(lambda: self.get_current_browser().reload() if self.get_current_browser() else None)
         nav_layout.addWidget(self.reload_btn)
+        self.url_container = QWidget()
+        self.url_container.setObjectName("url_container")
+        url_layout = QHBoxLayout(self.url_container)
+        url_layout.setContentsMargins(10, 0, 10, 0)
+        url_layout.setSpacing(4)
         self.url_bar = QLineEdit()
+        self.url_bar.setStyleSheet("background: transparent; border: none; padding: 0;")
         self.url_bar.returnPressed.connect(self.navigate_to_url)
-        nav_layout.addWidget(self.url_bar)
+        url_layout.addWidget(self.url_bar)
         self.bookmark_btn = QPushButton("⭐")
         self.bookmark_btn.setObjectName("bookmark_btn")
         self.bookmark_btn.setToolTip("Adicionar aos Favoritos")
         self.bookmark_btn.clicked.connect(self.add_current_to_bookmarks)
-        nav_layout.addWidget(self.bookmark_btn)
+        url_layout.addWidget(self.bookmark_btn)
+        nav_layout.addWidget(self.url_container, 1)
         self.safe_search_switch = QCheckBox("Pesquisa Segura")
         self.safe_search_switch.setObjectName("safe_search_switch")
         self.safe_search_switch.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -119,43 +119,44 @@ class MainWindow(QMainWindow):
         self.browser_menu.addAction("Downloads").triggered.connect(lambda: QMessageBox.information(self, "Downloads", "Em breve!"))
         self.browser_menu.addSeparator()
         self.browser_menu.addAction("Sobre o Internet Surfer").triggered.connect(lambda: QMessageBox.about(self, "Sobre", "Internet Surfer com suporte avançado a Split View."))
-        right_layout.addWidget(nav_bar_widget)
+        main_layout.addWidget(nav_bar_widget)
         self.bookmarks_bar = QToolBar("Favoritos")
-        self.bookmarks_bar.setStyleSheet("QToolBar { background-color: #ffffff; border-bottom: 1px solid #dee1e6; spacing: 5px; padding: 2px; } QToolButton { background-color: #f1f3f4; border-radius: 4px; padding: 2px 8px; color: #3c4043; font-size: 11px; } QToolButton:hover { background-color: #e8eaed; }")
         self.bookmarks_bar.setMovable(False)
-        right_layout.addWidget(self.bookmarks_bar)
+        main_layout.addWidget(self.bookmarks_bar)
         self.update_bookmarks_bar()
         self.container = QStackedWidget()
-        right_layout.addWidget(self.container)
-        main_h_layout.addWidget(right_container)
+        main_layout.addWidget(self.container)
         self.status = QStatusBar()
         self.setStatusBar(self.status)
         self.add_new_tab(QUrl("https://www.gentoo.org/"), "Gentoo Linux")
     def apply_embedded_stylesheet(self):
         qss = """
-        QMainWindow { background-color: #ffffff; }
-        QWidget#tab_container { background-color: #dee1e6; border-right: 1px solid #dee1e6; padding-top: 10px; }
+        QMainWindow { background-color: #f1f3f4; }
+        QWidget#tab_container { background-color: #dee1e6; padding-top: 8px; padding-left: 8px; }
         QStatusBar { background-color: #f1f3f4; color: #5f6368; font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; }
-        QTabBar { background-color: #dee1e6; qproperty-drawBase: 0; border: none; }
-        QTabBar::tab { background-color: #dee1e6; color: #3c4043; padding: 12px 8px; border-top-left-radius: 8px; border-bottom-left-radius: 8px; margin-bottom: 4px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; width: 160px; text-align: left; }
-        QTabBar::tab:selected { background-color: #ffffff; border-right: 2px solid #1a73e8; }
-        QTabBar::tab:hover:not(:selected) { background-color: #e8eaed; color: #202124; }
-        QTabBar::close-button { subcontrol-position: right; border-radius: 2px; }
-        QTabBar::close-button:hover { background-color: #e81123; color: white; }
-        QSplitter::handle { background-color: #dee1e6; }
-        QLineEdit { background-color: #f1f3f4; color: #202124; border: none; border-radius: 14px; padding: 5px 15px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; }
-        QLineEdit:focus { border: 2px solid #1a73e8; background-color: #ffffff; padding: 3px 13px; }
-        QPushButton { background-color: transparent; color: #5f6368; border: none; border-radius: 14px; min-width: 28px; min-height: 28px; max-width: 28px; max-height: 28px; font-size: 16px; }
+        QTabBar { qproperty-drawBase: 0; border: none; }
+        QTabBar::tab { background-color: transparent; color: #3c4043; padding: 8px 20px; border-top-left-radius: 8px; border-top-right-radius: 8px; margin-right: -4px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; min-width: 140px; max-width: 200px; }
+        QTabBar::tab:selected { background-color: #ffffff; color: #1a73e8; }
+        QTabBar::tab:hover:not(:selected) { background-color: rgba(255, 255, 255, 0.4); color: #202124; }
+        QTabBar::close-button { subcontrol-position: right; border-radius: 50%; width: 14px; height: 14px; margin-left: 4px; }
+        QTabBar::close-button:hover { background-color: #e8eaed; color: #3c4043; }
+        QWidget#nav_bar_widget { background-color: #ffffff; border-bottom: 1px solid #dee1e6; }
+        QWidget#url_container { background-color: #f1f3f4; border-radius: 16px; min-height: 28px; max-height: 28px; }
+        QWidget#url_container:focus-within { background-color: #ffffff; border: 2px solid #1a73e8; }
+        QPushButton { background-color: transparent; color: #5f6368; border: none; border-radius: 50%; min-width: 28px; min-height: 28px; max-width: 28px; max-height: 28px; font-size: 14px; }
         QPushButton:hover { background-color: rgba(0, 0, 0, 0.06); color: #202124; }
-        QPushButton:pressed { background-color: rgba(0, 0, 0, 0.12); }
-        QPushButton#new_tab_btn { color: #1a73e8; font-size: 13px; font-weight: bold; background-color: #ffffff; border: 1px solid #dee1e6; border-radius: 6px; margin: 10px; max-width: 160px; min-height: 32px; }
-        QPushButton#new_tab_btn:hover { background-color: #f1f3f4; }
-        QPushButton#menu_btn { font-size: 18px; font-weight: bold; }
-        QPushButton#bookmark_btn { font-size: 14px; }
-        QCheckBox#safe_search_switch { color: #5f6368; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold; spacing: 8px; }
+        QPushButton:pressed { background-color: rgba(0, 0, 0, 0.1); }
+        QPushButton#new_tab_btn { font-size: 14px; border-radius: 50%; min-width: 24px; min-height: 24px; max-width: 24px; max-height: 24px; margin-bottom: 4px; margin-left: 4px; }
+        QPushButton#menu_btn { font-size: 16px; }
+        QPushButton#bookmark_btn { font-size: 13px; min-width: 20px; min-height: 20px; max-width: 20px; max-height: 20px; }
+        QCheckBox#safe_search_switch { color: #5f6368; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; spacing: 6px; }
         QCheckBox#safe_search_switch:hover { color: #202124; }
+        QToolBar { background-color: #ffffff; border-bottom: 1px solid #dee1e6; border-top: none; spacing: 4px; padding: 2px 8px; min-height: 28px; }
+        QToolButton { background-color: transparent; border: none; border-radius: 4px; padding: 2px 6px; color: #3c4043; font-size: 12px; font-family: 'Segoe UI', Arial, sans-serif; }
+        QToolButton:hover { background-color: #f1f3f4; }
+        QSplitter::handle { background-color: #dee1e6; }
         QMenu { background-color: #ffffff; border: 1px solid #dee1e6; border-radius: 8px; padding: 4px 0px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #202124; }
-        QMenu::item { padding: 8px 32px 8px 16px; }
+        QMenu::item { padding: 6px 32px 6px 16px; }
         QMenu::item:selected { background-color: #f1f3f4; }
         QMenu::separator { height: 1px; background-color: #dee1e6; margin: 4px 0px; }
         """
@@ -280,15 +281,15 @@ class MainWindow(QMainWindow):
             self.worker.start()
         else:
             QNetworkProxy.setApplicationProxy(QNetworkProxy(QNetworkProxy.ProxyType.NoProxy))
+            self.private_profile.setProxyConfigurator(lambda url: [])
+            QWebEngineProfile.defaultProfile().setProxyConfigurator(lambda url: [])
             self.update_browsers_profile(QWebEngineProfile.defaultProfile())
             self.status.showMessage("Modo Tor Desativado - Perfil Padrão Ativo", 4000)
     def handle_tor_check_result(self, is_available):
         if is_available:
-            proxy = QNetworkProxy()
-            proxy.setType(QNetworkProxy.ProxyType.Socks5Proxy)
-            proxy.setHostName("127.0.0.1")
-            proxy.setPort(9050)
+            proxy = QNetworkProxy(QNetworkProxy.ProxyType.Socks5Proxy, "127.0.0.1", 9050)
             QNetworkProxy.setApplicationProxy(proxy)
+            self.private_profile.setProxyConfigurator(lambda url: [proxy])
             self.update_browsers_profile(self.private_profile)
             self.status.showMessage("⚠️ Modo Tor & Perfil Incógnito Ativados (Dados não serão salvos)", 5000)
         else:
