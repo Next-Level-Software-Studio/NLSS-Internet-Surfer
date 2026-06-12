@@ -179,15 +179,23 @@ class MainWindow(QMainWindow):
         self.menu_btn.clicked.connect(self.show_menu)
         nav_layout.addWidget(self.menu_btn)
         self.browser_menu = QMenu(self)
+        self.browser_menu = QMenu(self)
+        self.browser_menu.addAction("Novo separador").triggered.connect(lambda: self.add_new_tab())
         self.browser_menu.addAction("Nova aba").triggered.connect(lambda: self.add_new_tab())
         self.browser_menu.addSeparator()
-        self.browser_menu.addAction("📺 Adicionar ao Grupo (Dividir Ecrã)").triggered.connect(self.split_current_tab_with_new_browser)
-        self.browser_menu.addAction("🔄 Alternar Orientação do Grupo (H/V)").triggered.connect(self.toggle_splitter_orientation)
-        self.browser_menu.addSeparator()
-        self.browser_menu.addAction("🛡️ Definições e Permissões").triggered.connect(self.open_settings_window)
-        self.browser_menu.addSeparator()
         self.browser_menu.addAction("Histórico").triggered.connect(self.show_history)
-        self.browser_menu.addAction("Limpar Dados de Navegação").triggered.connect(self.clear_browser_data)
+        self.browser_menu.addAction("Tranferências").triggered.connect(lambda: QMessageBox.information(self, "Tranferências", "Funcionalidade não implementada."))
+        self.browser_menu.addSeparator()
+        self.browser_menu.addAction("Marcadores, listas e grupos").triggered.connect(lambda: QMessageBox.information(self, "Marcadores", "Gestão de marcadores não implementada."))
+        self.browser_menu.addSeparator()
+        self.browser_menu.addAction("Eliminar dados").triggered.connect(self.clear_browser_data)
+        zoom_menu = self.browser_menu.addMenu("Zoom")
+        zoom_menu.addAction("Aumentar").triggered.connect(self.zoom_in)
+        zoom_menu.addAction("Reduzir").triggered.connect(self.zoom_out)
+        zoom_menu.addAction("Resetar").triggered.connect(self.zoom_reset)
+        self.browser_menu.addAction("Traduzir").triggered.connect(lambda: QMessageBox.information(self, "Traduzir", "Funcionalidade não implementada."))
+        self.browser_menu.addSeparator()
+        self.browser_menu.addAction("Defenições").triggered.connect(self.open_settings_window)
         main_layout.addWidget(nav_bar_widget)
         self.bookmarks_bar = QToolBar("Favoritos")
         self.bookmarks_bar.setMovable(False)
@@ -434,6 +442,30 @@ class MainWindow(QMainWindow):
         pos = self.menu_btn.mapToGlobal(self.menu_btn.rect().bottomRight())
         pos.setX(pos.x() - self.browser_menu.sizeHint().width())
         self.browser_menu.exec(pos)
+
+    def zoom_in(self):
+        b = self.get_current_browser()
+        if b:
+            try:
+                b.setZoomFactor(b.zoomFactor() + 0.1)
+            except Exception:
+                pass
+
+    def zoom_out(self):
+        b = self.get_current_browser()
+        if b:
+            try:
+                b.setZoomFactor(max(0.25, b.zoomFactor() - 0.1))
+            except Exception:
+                pass
+
+    def zoom_reset(self):
+        b = self.get_current_browser()
+        if b:
+            try:
+                b.setZoomFactor(1.0)
+            except Exception:
+                pass
 
     def add_new_tab(self, qurl=None, label="Nova guia"):
         if qurl is None:
