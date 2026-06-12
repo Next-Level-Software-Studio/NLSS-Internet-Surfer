@@ -174,7 +174,7 @@ class MainWindow(QMainWindow):
         self.safe_search_switch.stateChanged.connect(self.safe_search_toggled)
         self.safe_search_switch.setChecked(True)
         nav_layout.addWidget(self.safe_search_switch)
-        self.menu_btn = QPushButton("⋮")
+        self.menu_btn = QPushButton("☰")
         self.menu_btn.setObjectName("menu_btn")
         self.menu_btn.clicked.connect(self.show_menu)
         nav_layout.addWidget(self.menu_btn)
