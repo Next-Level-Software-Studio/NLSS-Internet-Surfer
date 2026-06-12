@@ -9,10 +9,51 @@ from PyQt6.QtNetwork import QNetworkProxy, QNetworkAccessManager, QNetworkReques
 BOOKMARKS_FILE = os.path.expanduser("~/.internet_surfer_bookmarks.json")
 
 class SilentWebEnginePage(QWebEnginePage):
-    """Classe personalizada para silenciar os logs de JavaScript dos sites no terminal."""
+    """Classe personalizada para silenciar logs e filtrar links de navegação."""
+    
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
-        # Deixar vazio para ignorar e não printar no terminal
+        # Silencia os logs de JavaScript no terminal
         pass
+
+    def acceptNavigationRequest(self, url: QUrl, navigationType, isMainFrame: bool) -> bool:
+        """
+        Função executada sempre que o navegador tenta aceder a qualquer link.
+        """
+        url_str = url.toString()
+        
+        # Ignora páginas em branco internas
+        if url_str == "about:blank":
+            return True
+            
+        # =========================================================================
+        # PONTO DE INSERÇÃO: SEU CÓDIGO DE VALIDAÇÃO
+        # =========================================================================
+        # Substitua a lógica abaixo pelo seu sistema de verificação de confiança.
+        # url_str contém o link completo que o utilizador está a tentar abrir.
+        
+        link_confiavel = self.verificar_se_link_e_confiavel(url_str)
+        
+        if not link_confiavel:
+            print(f"[BLOQUEADO] O acesso ao link foi impedido por segurança: {url_str}")
+            # Retornar False cancela a navegação e o link não abre
+            return False
+            
+        # =========================================================================
+        
+        # Retornar True permite que o site carregue normalmente
+        return super().acceptNavigationRequest(url, navigationType, isMainFrame)
+
+    def verificar_se_link_e_confiavel(self, url_da_pagina: str) -> bool:
+        """
+        PLACEHOLDER: Insira aqui a lógica do seu código desenvolvido.
+        Deve retornar True se for seguro, ou False se for para bloquear.
+        """
+        # Exemplo simples (exclui sites que contenham 'malware' no nome):
+        if "malware" in url_da_pagina.lower():
+            return False
+            
+        return True
+
 
 class TorCheckWorker(QThread):
     result_signal = pyqtSignal(bool)
@@ -126,7 +167,6 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
-        # Barra de Abas
         tab_container = QWidget()
         tab_container.setObjectName("tab_container")
         tab_layout = QHBoxLayout(tab_container)
@@ -151,7 +191,6 @@ class MainWindow(QMainWindow):
         tab_layout.addStretch(1)
         main_layout.addWidget(tab_container)
         
-        # Barra de Navegação
         nav_bar_widget = QWidget()
         nav_bar_widget.setObjectName("nav_bar_widget")
         nav_layout = QHBoxLayout(nav_bar_widget)
@@ -170,7 +209,6 @@ class MainWindow(QMainWindow):
         self.reload_btn.clicked.connect(lambda: self.get_current_browser().reload() if self.get_current_browser() else None)
         nav_layout.addWidget(self.reload_btn)
         
-        # Container da Barra de URL
         self.url_container = QWidget()
         self.url_container.setObjectName("url_container")
         url_layout = QHBoxLayout(self.url_container)
@@ -386,7 +424,6 @@ class MainWindow(QMainWindow):
                         browser = splitter.widget(i)
                         if isinstance(browser, QWebEngineView):
                             current_url = browser.url()
-                            # Associa a nossa página silenciosa com o novo perfil
                             new_page = SilentWebEnginePage(profile, browser)
                             browser.setPage(new_page)
                             browser.setUrl(current_url)
@@ -404,7 +441,6 @@ class MainWindow(QMainWindow):
         profile = self.private_profile if self.safe_search_switch.isChecked() else self.default_profile
         
         left_browser = QWebEngineView()
-        # Inicializa a aba usando a página que bloqueia logs no terminal
         new_page = SilentWebEnginePage(profile, left_browser)
         left_browser.setPage(new_page)
         left_browser.setUrl(qurl)
