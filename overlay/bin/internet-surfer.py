@@ -1,12 +1,29 @@
-import sys, os
-from PyQt6.QtCore import QUrl, Qt
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QLineEdit, QStatusBar, 
-                             QFileDialog, QMessageBox, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QPushButton, QTabBar, QStackedWidget, 
-                             QMenu, QCheckBox, QSplitter, QLabel)
+import sys, os, json
+from PyQt6.QtCore import QUrl, Qt, QThread, pyqtSignal
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QLineEdit, QStatusBar, QFileDialog, QMessageBox, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabBar, QStackedWidget, QMenu, QCheckBox, QSplitter, QLabel, QToolBar)
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest
-from PyQt6.QtGui import QAction, QColor
+from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest, QWebEngineProfile, QWebEnginePage
+from PyQt6.QtGui import QAction
+from PyQt6.QtNetwork import QNetworkProxy, QNetworkAccessManager, QNetworkRequest, QNetworkReply
+BOOKMARKS_FILE = os.path.expanduser("~/.internet_surfer_bookmarks.json")
+class TorCheckWorker(QThread):
+    result_signal = pyqtSignal(bool)
+    def run(self):
+        manager = QNetworkAccessManager()
+        proxy = QNetworkProxy(QNetworkProxy.ProxyType.Socks5Proxy, "127.0.0.1", 9050)
+        manager.setProxy(proxy)
+        request = QNetworkRequest(QUrl("https://check.torproject.org/api/ip"))
+        request.setAttribute(QNetworkRequest.Attribute.HttpPipeliningAllowedAttribute, True)
+        reply = manager.get(request)
+        from PyQt6.QtCore import QEventLoop
+        loop = QEventLoop()
+        reply.finished.connect(loop.quit)
+        loop.exec()
+        if reply.error() == QNetworkReply.NetworkError.NoError:
+            self.result_signal.emit(True)
+        else:
+            self.result_signal.emit(False)
+        reply.deleteLater()
 class SafeSearchWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -24,18 +41,23 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Internet Surfer")
         self.setGeometry(100, 100, 1200, 800)
         self.safe_search_window = None
+        self.history_list = []
+        self.bookmarks = self.load_bookmarks()
+        self.private_profile = QWebEngineProfile("PrivateProfile", self)
         self.apply_embedded_stylesheet()
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        main_h_layout = QHBoxLayout(central_widget)
+        main_h_layout.setContentsMargins(0, 0, 0, 0)
+        main_h_layout.setSpacing(0)
         tab_container = QWidget()
         tab_container.setObjectName("tab_container")
-        tab_layout = QHBoxLayout(tab_container)
+        tab_container.setFixedWidth(180)
+        tab_layout = QVBoxLayout(tab_container)
         tab_layout.setContentsMargins(0, 0, 0, 0)
         tab_layout.setSpacing(0)
         self.tab_bar = QTabBar()
+        self.tab_bar.setShape(QTabBar.Shape.RoundedWest)
         self.tab_bar.setTabsClosable(True)
         self.tab_bar.setMovable(True)
         self.tab_bar.setExpanding(True)
@@ -44,14 +66,18 @@ class MainWindow(QMainWindow):
         self.tab_bar.customContextMenuRequested.connect(self.show_tab_context_menu)
         self.tab_bar.tabCloseRequested.connect(self.close_current_tab)
         self.tab_bar.currentChanged.connect(self.tab_changed)
-        self.tab_bar.tabBarClicked.connect(self.adjust_tab_widths)
         tab_layout.addWidget(self.tab_bar)
-        self.new_tab_btn = QPushButton("＋")
+        self.new_tab_btn = QPushButton("＋ Nova Aba")
         self.new_tab_btn.setObjectName("new_tab_btn")
+        self.new_tab_btn.setMinimumWidth(160)
         self.new_tab_btn.clicked.connect(lambda: self.add_new_tab())
-        tab_layout.addWidget(self.new_tab_btn)
+        tab_layout.addWidget(self.new_tab_btn, 0, Qt.AlignmentFlag.AlignCenter)
         tab_layout.addStretch(1)
-        main_layout.addWidget(tab_container)
+        main_h_layout.addWidget(tab_container)
+        right_container = QWidget()
+        right_layout = QVBoxLayout(right_container)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
         nav_bar_widget = QWidget()
         nav_bar_widget.setStyleSheet("background-color: #ffffff; border-bottom: 1px solid #dee1e6;")
         nav_layout = QHBoxLayout(nav_bar_widget)
@@ -69,6 +95,11 @@ class MainWindow(QMainWindow):
         self.url_bar = QLineEdit()
         self.url_bar.returnPressed.connect(self.navigate_to_url)
         nav_layout.addWidget(self.url_bar)
+        self.bookmark_btn = QPushButton("⭐")
+        self.bookmark_btn.setObjectName("bookmark_btn")
+        self.bookmark_btn.setToolTip("Adicionar aos Favoritos")
+        self.bookmark_btn.clicked.connect(self.add_current_to_bookmarks)
+        nav_layout.addWidget(self.bookmark_btn)
         self.safe_search_switch = QCheckBox("Pesquisa Segura")
         self.safe_search_switch.setObjectName("safe_search_switch")
         self.safe_search_switch.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -83,24 +114,31 @@ class MainWindow(QMainWindow):
         self.browser_menu.addSeparator()
         self.browser_menu.addAction("Safe Search").triggered.connect(self.open_safe_search_window)
         self.browser_menu.addSeparator()
-        self.browser_menu.addAction("Histórico").triggered.connect(lambda: QMessageBox.information(self, "Histórico", "Em breve!"))
+        self.browser_menu.addAction("Histórico").triggered.connect(self.show_history)
+        self.browser_menu.addAction("Limpar Dados de Navegação (Cookies/Cache)").triggered.connect(self.clear_browser_data)
         self.browser_menu.addAction("Downloads").triggered.connect(lambda: QMessageBox.information(self, "Downloads", "Em breve!"))
         self.browser_menu.addSeparator()
         self.browser_menu.addAction("Sobre o Internet Surfer").triggered.connect(lambda: QMessageBox.about(self, "Sobre", "Internet Surfer com suporte avançado a Split View."))
-        main_layout.addWidget(nav_bar_widget)
+        right_layout.addWidget(nav_bar_widget)
+        self.bookmarks_bar = QToolBar("Favoritos")
+        self.bookmarks_bar.setStyleSheet("QToolBar { background-color: #ffffff; border-bottom: 1px solid #dee1e6; spacing: 5px; padding: 2px; } QToolButton { background-color: #f1f3f4; border-radius: 4px; padding: 2px 8px; color: #3c4043; font-size: 11px; } QToolButton:hover { background-color: #e8eaed; }")
+        self.bookmarks_bar.setMovable(False)
+        right_layout.addWidget(self.bookmarks_bar)
+        self.update_bookmarks_bar()
         self.container = QStackedWidget()
-        main_layout.addWidget(self.container)
+        right_layout.addWidget(self.container)
+        main_h_layout.addWidget(right_container)
         self.status = QStatusBar()
         self.setStatusBar(self.status)
         self.add_new_tab(QUrl("https://www.gentoo.org/"), "Gentoo Linux")
     def apply_embedded_stylesheet(self):
         qss = """
         QMainWindow { background-color: #ffffff; }
-        QWidget#tab_container { background-color: #dee1e6; border: none; }
+        QWidget#tab_container { background-color: #dee1e6; border-right: 1px solid #dee1e6; padding-top: 10px; }
         QStatusBar { background-color: #f1f3f4; color: #5f6368; font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; }
         QTabBar { background-color: #dee1e6; qproperty-drawBase: 0; border: none; }
-        QTabBar::tab { background-color: #dee1e6; color: #3c4043; padding: 8px 12px; border-top-left-radius: 8px; border-top-right-radius: 8px; margin-top: 4px; margin-right: 2px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; }
-        QTabBar::tab:selected { background-color: #ffffff; }
+        QTabBar::tab { background-color: #dee1e6; color: #3c4043; padding: 12px 8px; border-top-left-radius: 8px; border-bottom-left-radius: 8px; margin-bottom: 4px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; width: 160px; text-align: left; }
+        QTabBar::tab:selected { background-color: #ffffff; border-right: 2px solid #1a73e8; }
         QTabBar::tab:hover:not(:selected) { background-color: #e8eaed; color: #202124; }
         QTabBar::close-button { subcontrol-position: right; border-radius: 2px; }
         QTabBar::close-button:hover { background-color: #e81123; color: white; }
@@ -110,15 +148,12 @@ class MainWindow(QMainWindow):
         QPushButton { background-color: transparent; color: #5f6368; border: none; border-radius: 14px; min-width: 28px; min-height: 28px; max-width: 28px; max-height: 28px; font-size: 16px; }
         QPushButton:hover { background-color: rgba(0, 0, 0, 0.06); color: #202124; }
         QPushButton:pressed { background-color: rgba(0, 0, 0, 0.12); }
-        QPushButton#new_tab_btn { color: #5f6368; font-size: 14px; margin-top: 6px; margin-left: 4px; }
-        QPushButton#new_tab_btn:hover { background-color: rgba(0, 0, 0, 0.06); color: #202124; }
+        QPushButton#new_tab_btn { color: #1a73e8; font-size: 13px; font-weight: bold; background-color: #ffffff; border: 1px solid #dee1e6; border-radius: 6px; margin: 10px; max-width: 160px; min-height: 32px; }
+        QPushButton#new_tab_btn:hover { background-color: #f1f3f4; }
         QPushButton#menu_btn { font-size: 18px; font-weight: bold; }
+        QPushButton#bookmark_btn { font-size: 14px; }
         QCheckBox#safe_search_switch { color: #5f6368; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold; spacing: 8px; }
         QCheckBox#safe_search_switch:hover { color: #202124; }
-        QCheckBox#safe_search_switch::indicator { width: 34px; height: 20px; border-radius: 10px; }
-        QCheckBox#safe_search_switch::indicator:unchecked { background-color: #dee1e6; }
-        QCheckBox#safe_search_switch::indicator:checked { background-color: #1a73e8; }
-        QCheckBox#safe_search_switch::indicator::text-button { background-color: #ffffff; border-radius: 7px; width: 14px; height: 14px; }
         QMenu { background-color: #ffffff; border: 1px solid #dee1e6; border-radius: 8px; padding: 4px 0px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #202124; }
         QMenu::item { padding: 8px 32px 8px 16px; }
         QMenu::item:selected { background-color: #f1f3f4; }
@@ -131,6 +166,46 @@ class MainWindow(QMainWindow):
         self.safe_search_window.show()
         self.safe_search_window.raise_()
         self.safe_search_window.activateWindow()
+    def load_bookmarks(self):
+        if os.path.exists(BOOKMARKS_FILE):
+            try:
+                with open(BOOKMARKS_FILE, "r") as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
+    def save_bookmarks(self):
+        try:
+            with open(BOOKMARKS_FILE, "w") as f:
+                json.dump(self.bookmarks, f)
+        except:
+            pass
+    def add_current_to_bookmarks(self):
+        browser = self.get_current_browser()
+        if browser:
+            url = browser.url().toString()
+            title = browser.title() or url
+            if url and url != "about:blank":
+                self.bookmarks[title[:15] + "..."] = url
+                self.save_bookmarks()
+                self.update_bookmarks_bar()
+                self.status.showMessage("Adicionado aos favoritos!", 3000)
+    def update_bookmarks_bar(self):
+        self.bookmarks_bar.clear()
+        for title, url in self.bookmarks.items():
+            action = QAction(title, self)
+            action.triggered.connect(lambda checked, u=url: self.open_url_in_current_tab(u))
+            self.bookmarks_bar.addAction(action)
+    def open_url_in_current_tab(self, url_str):
+        browser = self.get_current_browser()
+        if browser:
+            browser.setUrl(QUrl(url_str))
+    def clear_browser_data(self):
+        profile = QWebEngineProfile.defaultProfile()
+        profile.clearHttpCache()
+        profile.cookieStore().deleteAllCookies()
+        self.history_list.clear()
+        QMessageBox.information(self, "Limpeza Completa", "Cookies, cache e histórico local foram removidos com sucesso!")
     def show_tab_context_menu(self, point):
         tab_index = self.tab_bar.tabAt(point)
         if tab_index == -1:
@@ -156,20 +231,6 @@ class MainWindow(QMainWindow):
             unsplit_action = QAction("📺 Desfazer Vista Dividida (Separar Abas)", self)
             unsplit_action.triggered.connect(lambda: self.unsplit_tab(tab_index))
             context_menu.addAction(unsplit_action)
-        context_menu.addSeparator()
-        groups = [
-            ("Grupo Trabalho (Azul)", "#1a73e8"),
-            ("Grupo Lazer (Verde)", "#1e8e3e"),
-            ("Grupo Estudos (Laranja)", "#f2994a")
-        ]
-        for name, color in groups:
-            action = QAction(name, self)
-            action.triggered.connect(lambda checked, idx=tab_index, col=color: self.assign_tab_to_group(idx, col))
-            context_menu.addAction(action)
-        context_menu.addSeparator()
-        clear_action = QAction("Remover do Grupo", self)
-        clear_action.triggered.connect(lambda: self.assign_tab_to_group(tab_index, None))
-        context_menu.addAction(clear_action)
         context_menu.exec(self.tab_bar.mapToGlobal(point))
     def split_with_existing_tab(self, current_tab_index, target_tab_index):
         current_data = self.tab_bar.tabData(current_tab_index)
@@ -184,7 +245,7 @@ class MainWindow(QMainWindow):
         target_splitter.removeWidget(target_browser)
         current_splitter.addWidget(target_browser)
         current_data["moved_browser"] = target_browser
-        current_data["moved_browser_original_title"] = self.tab_bar.tabText(target_tab_index).replace("● ", "")
+        current_data["moved_browser_original_title"] = self.tab_bar.tabText(target_tab_index)
         self.tab_bar.setTabData(current_tab_index, current_data)
         self.tab_bar.removeTab(target_tab_index)
         target_browser.urlChanged.connect(lambda qurl, b=target_browser: self.update_url_bar(qurl, b))
@@ -209,52 +270,72 @@ class MainWindow(QMainWindow):
             self.tab_bar.setTabData(tab_index, tab_data)
             moved_browser.urlChanged.connect(lambda qurl, b=moved_browser: self.update_url_bar(qurl, b))
             moved_browser.titleChanged.connect(lambda title, b=moved_browser: self.update_title(title, b))
-            self.adjust_tab_widths()
         self.tab_changed(self.tab_bar.currentIndex())
-    def assign_tab_to_group(self, tab_index, color_hex):
-        if color_hex:
-            self.tab_bar.setTabTextColor(tab_index, QColor(color_hex))
-            current_text = self.tab_bar.tabText(tab_index)
-            if not current_text.startswith("● "):
-                self.tab_bar.setTabText(tab_index, f"● {current_text}")
-        else:
-            self.tab_bar.setTabTextColor(tab_index, QColor("#3c4043"))
-            current_text = self.tab_bar.tabText(tab_index)
-            if current_text.startswith("● "):
-                self.tab_bar.setTabText(tab_index, current_text[2:])
     def safe_search_toggled(self, state):
         is_checked = (state == 2 or state == Qt.CheckState.Checked)
-        self.status.showMessage("Pesquisa Segura Ativada" if is_checked else "Pesquisa Segura Desativada", 2000)
+        if is_checked:
+            self.status.showMessage("Verificando conexão com a rede Tor...", 4000)
+            self.worker = TorCheckWorker()
+            self.worker.result_signal.connect(self.handle_tor_check_result)
+            self.worker.start()
+        else:
+            QNetworkProxy.setApplicationProxy(QNetworkProxy(QNetworkProxy.ProxyType.NoProxy))
+            self.update_browsers_profile(QWebEngineProfile.defaultProfile())
+            self.status.showMessage("Modo Tor Desativado - Perfil Padrão Ativo", 4000)
+    def handle_tor_check_result(self, is_available):
+        if is_available:
+            proxy = QNetworkProxy()
+            proxy.setType(QNetworkProxy.ProxyType.Socks5Proxy)
+            proxy.setHostName("127.0.0.1")
+            proxy.setPort(9050)
+            QNetworkProxy.setApplicationProxy(proxy)
+            self.update_browsers_profile(self.private_profile)
+            self.status.showMessage("⚠️ Modo Tor & Perfil Incógnito Ativados (Dados não serão salvos)", 5000)
+        else:
+            self.safe_search_switch.blockSignals(True)
+            self.safe_search_switch.setChecked(False)
+            self.safe_search_switch.blockSignals(False)
+            QNetworkProxy.setApplicationProxy(QNetworkProxy(QNetworkProxy.ProxyType.NoProxy))
+            QMessageBox.critical(self, "Falha no Modo Tor", "Não foi possível conectar à rede Tor.\n\nVerifique se o serviço 'tor' está rodando no seu Gentoo:\n# rc-service tor start")
+            self.status.showMessage("Erro: Serviço Tor indisponível.", 5000)
+    def update_browsers_profile(self, profile):
+        for index in range(self.tab_bar.count()):
+            tab_data = self.tab_bar.tabData(index)
+            if tab_data:
+                splitter = self.container.widget(tab_data.get("splitter_index"))
+                if splitter:
+                    for i in range(splitter.count()):
+                        browser = splitter.widget(i)
+                        if isinstance(browser, QWebEngineView):
+                            current_url = browser.url()
+                            new_page = QWebEnginePage(profile, browser)
+                            browser.setPage(new_page)
+                            browser.setUrl(current_url)
+                            left_browser = browser
+                            left_browser.urlChanged.connect(lambda qurl, b=left_browser: self.update_url_bar(qurl, b))
+                            left_browser.titleChanged.connect(lambda title, b=left_browser: self.update_title(title, b))
+                            left_browser.loadProgress.connect(self.update_progress)
+                            left_browser.loadFinished.connect(self.load_finished)
+                            left_browser.page().profile().downloadRequested.connect(self.handle_download)
     def show_menu(self):
         pos = self.menu_btn.mapToGlobal(self.menu_btn.rect().bottomRight())
         pos.setX(pos.x() - self.browser_menu.sizeHint().width())
         self.browser_menu.exec(pos)
-    def adjust_tab_widths(self):
-        num_tabs = self.tab_bar.count()
-        if num_tabs == 0:
-            return
-        parent_widget = self.tab_bar.parent()
-        available_width = parent_widget.width() - self.new_tab_btn.width() - 30 if parent_widget else 800
-        min_tab_width = 75
-        max_tab_width = 240
-        tab_width = max(min_tab_width, min(max_tab_width, available_width // num_tabs))
-        self.tab_bar.setStyleSheet(f"QTabBar::tab {{ min-width: {min_tab_width}px; max-width: {tab_width}px; }}")
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.adjust_tab_widths()
     def add_new_tab(self, qurl=None, label="Nova guia"):
         if qurl is None:
             qurl = QUrl("https://www.gentoo.org/")
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setStyleSheet("QSplitter::handle { background-color: #dee1e6; width: 4px; }")
+        profile = self.private_profile if self.safe_search_switch.isChecked() else QWebEngineProfile.defaultProfile()
         left_browser = QWebEngineView()
+        new_page = QWebEnginePage(profile, left_browser)
+        left_browser.setPage(new_page)
         left_browser.setUrl(qurl)
         splitter.addWidget(left_browser)
         splitter_index = self.container.addWidget(splitter)
         tab_index = self.tab_bar.addTab(label)
         self.tab_bar.setTabData(tab_index, {"splitter_index": splitter_index})
         self.tab_bar.setCurrentIndex(tab_index)
-        self.adjust_tab_widths()
         left_browser.urlChanged.connect(lambda qurl, b=left_browser: self.update_url_bar(qurl, b))
         left_browser.titleChanged.connect(lambda title, b=left_browser: self.update_title(title, b))
         left_browser.loadProgress.connect(self.update_progress)
@@ -280,7 +361,6 @@ class MainWindow(QMainWindow):
                 self.container.removeWidget(splitter_widget)
                 splitter_widget.deleteLater()
         self.tab_bar.removeTab(index)
-        self.adjust_tab_widths()
     def tab_changed(self, index):
         if index >= 0:
             tab_data = self.tab_bar.tabData(index)
@@ -290,33 +370,44 @@ class MainWindow(QMainWindow):
                 browser = self.get_current_browser()
                 if browser:
                     self.url_bar.setText(browser.url().toString())
-        self.adjust_tab_widths()
     def navigate_to_url(self):
-        text = self.url_bar.text()
-        if not text.startswith("http://") and not text.startswith("https://"):
-            url = QUrl("https://" + text)
+        text = self.url_bar.text().strip()
+        if not text:
+            return
+        if "." in text and " " not in text:
+            if not text.startswith("http://") and not text.startswith("https://"):
+                url = QUrl("https://" + text)
+            else:
+                url = QUrl(text)
         else:
-            url = QUrl(text)
+            safe_param = "&safe=active" if self.safe_search_switch.isChecked() else ""
+            url = QUrl(f"https://www.google.com/search?q={text}{safe_param}")
         active_browser = self.get_current_browser()
         if active_browser:
             active_browser.setUrl(url)
     def update_url_bar(self, url, browser):
+        url_str = url.toString()
         if browser == self.get_current_browser():
-            self.url_bar.setText(url.toString())
+            self.url_bar.setText(url_str)
+        if not self.safe_search_switch.isChecked():
+            if not self.history_list or self.history_list[-1] != url_str:
+                self.history_list.append(url_str)
+    def show_history(self):
+        if not self.history_list:
+            QMessageBox.information(self, "Histórico", "Nenhum histórico disponível (ou está no Modo Seguro).")
+            return
+        history_text = "\n".join(self.history_list[-20:])
+        QMessageBox.information(self, "Histórico Recente", f"Últimas páginas visitadas:\n\n{history_text}")
     def update_title(self, title, browser):
         for index in range(self.tab_bar.count()):
             tab_data = self.tab_bar.tabData(index)
             if tab_data:
                 splitter = self.container.widget(tab_data.get("splitter_index"))
                 if splitter and (splitter.widget(0) == browser or (splitter.count() > 1 and splitter.widget(1) == browser)):
-                    has_bullet = self.tab_bar.tabText(index).startswith("● ")
                     short_title = title[:15] + "..." if len(title) > 15 else title
                     if splitter.count() > 1:
                         short_title = f"[Split] {short_title}"
-                    if has_bullet:
-                        self.tab_bar.setTabText(index, f"● {short_title}")
-                    else:
-                        self.tab_bar.setTabText(index, short_title)
+                    self.tab_bar.setTabText(index, short_title)
                     break
     def update_progress(self, progress):
         if progress < 100:
@@ -331,14 +422,6 @@ class MainWindow(QMainWindow):
             download_item.setDownloadFileName(os.path.basename(path))
             download_item.accept()
             self.status.showMessage(f"Baixando: {download_item.suggestedFileName()}", 5000)
-            download_item.stateChanged.connect(lambda state: self.download_status_changed(state, download_item))
-        else:
-            download_item.interrupt()
-    def download_status_changed(self, state, download_item):
-        if state == QWebEngineDownloadRequest.DownloadState.DownloadCompleted:
-            QMessageBox.information(self, "Download Concluído", f"O arquivo '{download_item.suggestedFileName()}' foi baixado com sucesso!")
-        elif state == QWebEngineDownloadRequest.DownloadState.DownloadInterrupted:
-            QMessageBox.warning(self, "Download Interrompido", f"O download de '{download_item.suggestedFileName()}' falhou ou foi cancelado.")
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setApplicationName("Internet Surfer")
