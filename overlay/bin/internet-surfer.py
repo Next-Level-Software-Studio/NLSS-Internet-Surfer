@@ -1,10 +1,15 @@
 import sys, os, json
 from PyQt6.QtCore import QUrl, Qt, QThread, pyqtSignal, QEventLoop
+from urllib.parse import quote_plus
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLineEdit, QStatusBar, QFileDialog, QMessageBox, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabBar, QStackedWidget, QMenu, QCheckBox, QSplitter, QLabel, QToolBar, QComboBox, QFormLayout
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest, QWebEngineProfile, QWebEnginePage, QWebEngineSettings
 from PyQt6.QtGui import QAction
 from PyQt6.QtNetwork import QNetworkProxy, QNetworkAccessManager, QNetworkRequest, QNetworkReply
+support_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "usr", "share", "internet-explorer"))
+if support_dir not in sys.path:
+    sys.path.insert(0, support_dir)
+from browser_support import BookmarksWindow, DownloadsWindow
 
 BOOKMARKS_FILE = os.path.expanduser("~/.internet_surfer_bookmarks.json")
 
@@ -110,8 +115,11 @@ class MainWindow(QMainWindow):
         self.settings_window = None
         self.history_list = []
         self.bookmarks = self.load_bookmarks()
+        self.downloads = []
         self.default_profile = QWebEngineProfile.defaultProfile()
         self.private_profile = QWebEngineProfile("PrivateProfile", self)
+        self.default_profile.downloadRequested.connect(self.handle_download_request)
+        self.private_profile.downloadRequested.connect(self.handle_download_request)
         self.private_profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.NoPersistentCookies)
         self.apply_embedded_stylesheet()
         central_widget = QWidget()
@@ -152,19 +160,32 @@ class MainWindow(QMainWindow):
         self.forward_btn.clicked.connect(lambda: self.get_current_browser().forward() if self.get_current_browser() else None)
         nav_layout.addWidget(self.forward_btn)
         self.reload_btn = QPushButton("↻")
+        self.reload_btn.setObjectName("reload_btn")
+        self.reload_btn.setToolTip("Recarregar")
         self.reload_btn.clicked.connect(lambda: self.get_current_browser().reload() if self.get_current_browser() else None)
         nav_layout.addWidget(self.reload_btn)
+        self.home_btn = QPushButton("⌂")
+        self.home_btn.setObjectName("home_btn")
+        self.home_btn.setToolTip("Página inicial")
+        self.home_btn.clicked.connect(self.go_home)
+        nav_layout.addWidget(self.home_btn)
         self.url_container = QWidget()
         self.url_container.setObjectName("url_container")
         url_layout = QHBoxLayout(self.url_container)
         url_layout.setContentsMargins(10, 0, 10, 0)
         url_layout.setSpacing(4)
+        search_icon = QLabel("🔍")
+        search_icon.setStyleSheet("color: #5f6368; padding-left: 6px; padding-right: 4px;")
+        url_layout.addWidget(search_icon)
         self.url_bar = QLineEdit()
+        self.url_bar.setPlaceholderText("Pesquisar ou inserir endereço")
+        self.url_bar.setClearButtonEnabled(True)
         self.url_bar.setStyleSheet("background: transparent; border: none; padding: 0;")
         self.url_bar.returnPressed.connect(self.navigate_to_url)
         url_layout.addWidget(self.url_bar)
         self.bookmark_btn = QPushButton("⭐")
         self.bookmark_btn.setObjectName("bookmark_btn")
+        self.bookmark_btn.setToolTip("Adicionar aos favoritos")
         self.bookmark_btn.clicked.connect(self.add_current_to_bookmarks)
         url_layout.addWidget(self.bookmark_btn)
         nav_layout.addWidget(self.url_container, 1)
@@ -179,23 +200,26 @@ class MainWindow(QMainWindow):
         self.menu_btn.clicked.connect(self.show_menu)
         nav_layout.addWidget(self.menu_btn)
         self.browser_menu = QMenu(self)
-        self.browser_menu = QMenu(self)
         self.browser_menu.addAction("Novo separador").triggered.connect(lambda: self.add_new_tab())
         self.browser_menu.addAction("Nova aba").triggered.connect(lambda: self.add_new_tab())
         self.browser_menu.addSeparator()
         self.browser_menu.addAction("Histórico").triggered.connect(self.show_history)
-        self.browser_menu.addAction("Tranferências").triggered.connect(lambda: QMessageBox.information(self, "Tranferências", "Funcionalidade não implementada."))
+        self.browser_menu.addAction("Tranferências").triggered.connect(self.show_downloads)
         self.browser_menu.addSeparator()
-        self.browser_menu.addAction("Marcadores, listas e grupos").triggered.connect(lambda: QMessageBox.information(self, "Marcadores", "Gestão de marcadores não implementada."))
+        self.browser_menu.addAction("Marcadores, listas e grupos").triggered.connect(self.open_bookmarks_manager)
         self.browser_menu.addSeparator()
         self.browser_menu.addAction("Eliminar dados").triggered.connect(self.clear_browser_data)
         zoom_menu = self.browser_menu.addMenu("Zoom")
         zoom_menu.addAction("Aumentar").triggered.connect(self.zoom_in)
         zoom_menu.addAction("Reduzir").triggered.connect(self.zoom_out)
         zoom_menu.addAction("Resetar").triggered.connect(self.zoom_reset)
-        self.browser_menu.addAction("Traduzir").triggered.connect(lambda: QMessageBox.information(self, "Traduzir", "Funcionalidade não implementada."))
+        self.browser_menu.addAction("Traduzir").triggered.connect(self.translate_current_page)
         self.browser_menu.addSeparator()
         self.browser_menu.addAction("Defenições").triggered.connect(self.open_settings_window)
+        self.addAction(QAction("Nova aba", self, shortcut="Ctrl+T", triggered=self.add_new_tab))
+        self.addAction(QAction("Fechar aba", self, shortcut="Ctrl+W", triggered=lambda: self.close_current_tab(self.tab_bar.currentIndex())))
+        self.addAction(QAction("Recarregar", self, shortcut="Ctrl+R", triggered=self.reload_current_page))
+        self.addAction(QAction("Página inicial", self, shortcut="Alt+Home", triggered=self.go_home))
         main_layout.addWidget(nav_bar_widget)
         self.bookmarks_bar = QToolBar("Favoritos")
         self.bookmarks_bar.setMovable(False)
@@ -208,32 +232,15 @@ class MainWindow(QMainWindow):
         self.add_new_tab(QUrl("https://check.torproject.org/"), "Teste Tor")
 
     def apply_embedded_stylesheet(self):
-        self.setStyleSheet(
-            "QMainWindow { background-color: #f1f3f4; }"
-            "QWidget#tab_container { background-color: #f1f3f4; border-bottom: 1px solid #dadce0; padding: 8px 8px 0 8px; }"
-            "QStatusBar { background-color: #f1f3f4; color: #5f6368; font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; }"
-            "QTabBar { qproperty-drawBase: 0; background: transparent; margin: 0 8px; padding: 0 0 4px 0; }"
-            "QTabBar::tab { background: #f8f9fa; color: #5f6368; padding: 10px 18px; border-top-left-radius: 12px; border-top-right-radius: 12px; margin-right: 4px; min-width: 120px; max-width: 220px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; border: 1px solid transparent; }"
-            "QTabBar::tab:selected { background: #ffffff; color: #202124; border-color: #dadce0; border-bottom-color: #ffffff; }"
-            "QTabBar::tab:!selected { margin-top: 2px; }"
-            "QTabBar::tab:hover { background: rgba(66, 133, 244, 0.12); }"
-            "QTabBar::close-button { subcontrol-position: right; border-radius: 50%; width: 16px; height: 16px; margin-left: 6px; }"
-            "QTabBar::close-button:hover { background-color: rgba(60, 64, 67, 0.12); }"
-            "QWidget#nav_bar_widget { background-color: #ffffff; border-bottom: 1px solid #dadce0; }"
-            "QWidget#url_container { background-color: #ffffff; border: 1px solid #dadce0; border-radius: 999px; min-height: 38px; max-height: 38px; margin-left: 8px; }"
-            "QWidget#url_container:focus-within { border-color: #4285f4; }"
-            "QLineEdit { background: transparent; border: none; padding: 0 12px; color: #202124; font-size: 14px; }"
-            "QPushButton { background-color: transparent; color: #5f6368; border: none; border-radius: 6px; font-size: 13px; padding: 10px; }"
-            "QPushButton:hover { background-color: rgba(60, 64, 67, 0.08); }"
-            "QPushButton#new_tab_btn { font-size: 16px; border-radius: 50%; min-width: 30px; min-height: 30px; max-width: 30px; max-height: 30px; margin-bottom: 4px; margin-left: 4px; }"
-            "QPushButton#bookmark_btn, QPushButton#menu_btn { min-width: 34px; min-height: 34px; border-radius: 50%; }"
-            "QPushButton#bookmark_btn:hover, QPushButton#menu_btn:hover { background-color: rgba(60, 64, 67, 0.08); }"
-            "QCheckBox#safe_search_switch { color: #5f6368; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; spacing: 6px; }"
-            "QToolBar { background-color: #ffffff; border: none; padding: 4px 8px; spacing: 6px; min-height: 40px; }"
-            "QMenu { background-color: #ffffff; border: 1px solid #dadce0; border-radius: 12px; padding: 6px 0; font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #202124; }"
-            "QMenu::item { padding: 6px 28px 6px 16px; }"
-            "QMenu::item:selected { background-color: rgba(66, 133, 244, 0.12); }"
-        )
+        qss_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "usr", "share", "internet-explorer", "internet-surfer.qss"))
+        if os.path.exists(qss_path):
+            try:
+                with open(qss_path, "r", encoding="utf-8") as f:
+                    self.setStyleSheet(f.read())
+            except Exception:
+                self.setStyleSheet("")
+        else:
+            self.setStyleSheet("")
 
     def open_settings_window(self):
         if self.settings_window is None:
@@ -329,11 +336,14 @@ class MainWindow(QMainWindow):
         target_splitter = self.container.widget(target_data["splitter_index"])
         target_browser = target_splitter.widget(0) if target_splitter else None
         if target_browser:
-            target_splitter.removeWidget(target_browser)
+            target_browser.setParent(None)
             current_splitter.addWidget(target_browser)
             current_data["moved_browser"] = target_browser
             current_data["moved_browser_original_title"] = self.tab_bar.tabText(target_tab_index)
             self.tab_bar.setTabData(current_tab_index, current_data)
+            if target_splitter.count() == 0:
+                self.container.removeWidget(target_splitter)
+                target_splitter.deleteLater()
             self.tab_bar.removeTab(target_tab_index)
             self.tab_changed(self.tab_bar.currentIndex())
 
@@ -344,7 +354,7 @@ class MainWindow(QMainWindow):
         current_splitter = self.container.widget(tab_data["splitter_index"])
         moved_browser = tab_data["moved_browser"]
         if current_splitter.count() > 1 and moved_browser:
-            current_splitter.removeWidget(moved_browser)
+            moved_browser.setParent(None)
             new_splitter = QSplitter(Qt.Orientation.Horizontal)
             new_splitter.addWidget(moved_browser)
             new_splitter_index = self.container.addWidget(new_splitter)
@@ -443,6 +453,58 @@ class MainWindow(QMainWindow):
         pos.setX(pos.x() - self.browser_menu.sizeHint().width())
         self.browser_menu.exec(pos)
 
+    def handle_download_request(self, download):
+        default_name = os.path.basename(download.url().path()) or "download"
+        suggested_path = os.path.join(os.path.expanduser("~"), default_name)
+        save_path, _ = QFileDialog.getSaveFileName(self, "Guardar Transferência", suggested_path)
+        if not save_path:
+            download.cancel()
+            return
+        download.setPath(save_path)
+        download.accept()
+        entry = {"url": download.url().toString(), "path": save_path, "status": "Em progresso"}
+        self.downloads.append(entry)
+        download.downloadProgress.connect(lambda received, total, e=entry: self.update_download_progress(e, received, total))
+        download.finished.connect(lambda e=entry, d=download: self.finish_download(e, d))
+        self.status.showMessage(f"Transferência iniciada: {os.path.basename(save_path)}", 5000)
+
+    def update_download_progress(self, entry, received, total):
+        if total > 0:
+            entry["status"] = f"{int(received * 100 / total)}%"
+        else:
+            entry["status"] = "Em progresso"
+
+    def finish_download(self, entry, download):
+        status = "Concluído"
+        try:
+            state = download.state()
+            if hasattr(download, 'DownloadState'):
+                if state == download.DownloadState.DownloadCancelled:
+                    status = "Cancelado"
+                elif state != download.DownloadState.DownloadCompleted:
+                    status = "Interrompido"
+        except Exception:
+            pass
+        entry["status"] = status
+        self.status.showMessage(f"Transferência {status}: {os.path.basename(entry['path'])}", 5000)
+
+    def show_downloads(self):
+        DownloadsWindow(self, self.downloads).exec()
+
+    def open_bookmarks_manager(self):
+        BookmarksWindow(self, self.bookmarks).exec()
+
+    def translate_current_page(self):
+        browser = self.get_current_browser()
+        if not browser:
+            return
+        url = browser.url().toString()
+        if not url or url == "about:blank":
+            QMessageBox.information(self, "Traduzir", "Nenhuma página válida para tradução.")
+            return
+        translate_url = QUrl(f"https://translate.google.com/translate?sl=auto&tl=pt&u={quote_plus(url)}")
+        browser.setUrl(translate_url)
+
     def zoom_in(self):
         b = self.get_current_browser()
         if b:
@@ -450,6 +512,11 @@ class MainWindow(QMainWindow):
                 b.setZoomFactor(b.zoomFactor() + 0.1)
             except Exception:
                 pass
+
+    def reload_current_page(self):
+        browser = self.get_current_browser()
+        if browser:
+            browser.reload()
 
     def zoom_out(self):
         b = self.get_current_browser()
@@ -466,6 +533,11 @@ class MainWindow(QMainWindow):
                 b.setZoomFactor(1.0)
             except Exception:
                 pass
+
+    def go_home(self):
+        browser = self.get_current_browser()
+        if browser:
+            browser.setUrl(QUrl("https://www.google.com/"))
 
     def add_new_tab(self, qurl=None, label="Nova guia"):
         if qurl is None:
@@ -529,12 +601,22 @@ class MainWindow(QMainWindow):
         if active_browser:
             active_browser.setUrl(url)
 
+    def record_history(self, url):
+        url_str = url.toString()
+        if url_str and url_str != "about:blank" and (not self.history_list or self.history_list[-1] != url_str):
+            self.history_list.append(url_str)
+
     def update_url_bar(self, url, browser):
         if browser == self.get_current_browser():
             self.url_bar.setText(url.toString())
+            self.record_history(url)
 
     def show_history(self):
-        pass
+        if not self.history_list:
+            QMessageBox.information(self, "Histórico", "Nenhum histórico disponível.")
+            return
+        history_text = "\n".join(self.history_list[-15:][::-1])
+        QMessageBox.information(self, "Histórico recente", history_text)
 
     def update_title(self, title, browser):
         for index in range(self.tab_bar.count()):
